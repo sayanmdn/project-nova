@@ -95,46 +95,172 @@ POST /api/v1/process
 
 ---
 
-### Layer 2: Client Application
+### Layer 2: CLI Client Application
+
+#### Overview
+A command-line interface (CLI) application that handles audio input, wake word detection, and user interaction through the terminal.
 
 #### Core Functionality
 
 ##### 1. Audio Device Management
 ```bash
 # List available audio input devices
-./nova-client --list-devices
+./nova-cli --list-devices
+
+# Start with specific audio device
+./nova-cli --device 0
+
+# Start with default audio device
+./nova-cli --start
 ```
 
-##### 2. Continuous Audio Monitoring
-The client application performs the following workflow:
+##### 2. CLI Interface Flow
+The CLI application follows this interactive workflow:
 
-1. **Device Selection**
-   - Enumerate and display available audio input devices
-   - Allow user selection of preferred microphone
+1. **Startup & Device Selection**
+   ```
+   $ ./nova-cli --start
+   
+   NOVA Voice Assistant v1.0
+   ========================
+   
+   Available Audio Devices:
+   [0] Default Microphone
+   [1] USB Headset Microphone  
+   [2] Bluetooth Audio Device
+   
+   Select device [0-2]: 1
+   
+   ✓ Connected to: USB Headset Microphone
+   ⚡ CUDA acceleration: Enabled
+   🎯 Listening for "Hi Nova"...
+   ```
 
-2. **Wake Word Detection Loop**
-   - Continuously record audio in small chunks (e.g., 3-second intervals)
+2. **Wake Word Detection Mode**
+   ```
+   🔊 Monitoring audio... (Press Ctrl+C to stop)
+   🎯 Listening for wake word...
+   
+   [Wake word detected! Confidence: 95%]
+   🎤 Recording... (speak now)
+   ```
+
+3. **Active Recording & Processing**
+   ```
+   🎤 Recording... 
+   ⏹️  Speech ended. Processing audio...
+   
+   📝 Transcript: "What's the weather like today?"
+   🤖 Processing with AI...
+   
+   Response: "I'd be happy to help with weather information, but I don't have access to current weather data. You might want to check a weather app or website for the most up-to-date forecast in your area."
+   
+   🎯 Listening for "Hi Nova"... (Ready for next command)
+   ```
+
+##### 3. Command Line Options
+```bash
+# Basic usage
+./nova-cli --start
+
+# Advanced options
+./nova-cli --start --device 1 --config ./config.yaml --verbose
+./nova-cli --list-devices
+./nova-cli --test-audio
+./nova-cli --version
+./nova-cli --help
+
+# Configuration options via flags
+./nova-cli --start \
+  --server http://localhost:4000 \
+  --chunk-duration 3.0 \
+  --confidence-threshold 0.8 \
+  --silence-threshold -40
+```
+##### 4. Audio Processing Workflow
+The CLI application performs the following workflow:
+
+1. **Device Selection & Initialization**
+   - Display available audio input devices in a numbered list
+   - Allow user to select preferred microphone via keyboard input
+   - Initialize audio capture with selected device
+
+2. **Continuous Wake Word Detection**
+   - Record audio in small chunks (default: 3-second intervals)
    - Send audio chunks to `/api/v1/recognise` endpoint
-   - Monitor for wake phrase detection
+   - Display real-time status in terminal
+   - Show visual indicators for listening state
 
-3. **Full Audio Capture**
-   - When wake word is detected (`detected: true`), begin full audio recording
+3. **Full Audio Capture Sequence**
+   - When wake word is detected (`detected: true`), display confirmation
+   - Begin full audio recording session
    - Stop sending chunks to `/recognise` endpoint during active recording
    - Continue recording until speech ends (silence detection)
+   - Show recording progress in terminal
 
-4. **Audio Processing Pipeline**
+4. **Text Processing & Response Display**
    - Extract audio segment from wake word timestamp to end of speech
    - Send complete audio segment to `/api/v1/listen` for transcription
+   - Display transcribed text in terminal
    - Process transcribed text through `/api/v1/process` endpoint
-   - Display AI response in terminal
+   - Display AI response in formatted terminal output
+   - Return to wake word detection mode
 
-##### 3. Audio Chunking Strategy
+##### 5. CLI User Experience Features
+
+**Visual Indicators:**
+- Real-time audio level meter during listening
+- Animated spinner during processing
+- Color-coded status messages (green for success, red for errors)
+- Progress bars for file uploads and processing
+
+**Terminal Output Formatting:**
+```
+╭─ NOVA Voice Assistant ─────────────────────╮
+│ Status: 🎯 Listening for "Hi Nova"...      │
+│ Device: USB Headset Microphone             │
+│ Audio: ▓▓▓░░░░░░░ 30%                      │
+╰────────────────────────────────────────────╯
+
+[2024-01-01 12:30:45] Wake word detected!
+[2024-01-01 12:30:46] 🎤 Recording...
+[2024-01-01 12:30:52] ⏹️ Processing audio...
+[2024-01-01 12:30:54] 📝 "What's the weather today?"
+[2024-01-01 12:30:56] 🤖 AI Response:
+
+┌─ Response ─────────────────────────────────┐
+│ I'd be happy to help with weather info,   │
+│ but I don't have access to current data.  │
+│ Try checking a weather app for updates!   │
+└────────────────────────────────────────────┘
+
+Press Ctrl+C to exit, or continue speaking...
+```
+
+**Error Handling & User Feedback:**
+- Clear error messages with suggested solutions
+- Network connectivity status indicators
+- Audio device connection status
+- Server availability warnings
+- Graceful degradation when services are unavailable
+##### 6. Audio Chunking Strategy & Technical Implementation
+
+**Timeline Visualization:**
 ```
 Timeline: |----chunk1----chunk2----chunk3----[WAKE_DETECTED]----recording-----|
           |              |                    |                              |
           |              |                    |                              |
      /recognise     /recognise          /recognise                      /listen
 ```
+
+**CLI State Management:**
+- **IDLE**: Initial state, device selection
+- **LISTENING**: Continuous wake word detection
+- **TRIGGERED**: Wake word detected, preparing to record
+- **RECORDING**: Active speech capture
+- **PROCESSING**: Audio transcription and AI processing
+- **RESPONDING**: Displaying AI response
+- **ERROR**: Error state with recovery options
 
 #### Implementation Details
 
