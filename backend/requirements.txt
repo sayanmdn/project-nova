@@ -1,0 +1,5 @@
+fastapi
+uvicorn
+pydantic
+python-dotenv
+requests  # If needed for API calls
