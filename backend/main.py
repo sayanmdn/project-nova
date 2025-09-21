@@ -52,8 +52,11 @@ class TextProcessRequest(BaseModel):
     context: Optional[str] = Field(None, max_length=50000)
 
 class AudioBufferRequest(BaseModel):
-    audio_data: str = Field(..., description="Base64 encoded MP3 audio data")
-    format: Optional[str] = Field("mp3", description="Audio format (mp3 or wav)")
+    audio_data: str = Field(..., description="Base64 encoded audio data")
+    format: Optional[str] = Field("mp3", description="Audio format (mp3, wav, or raw)")
+    sample_rate: Optional[int] = Field(16000, description="Sample rate for raw PCM data")
+    channels: Optional[int] = Field(1, description="Number of channels for raw PCM data")
+    bit_depth: Optional[int] = Field(16, description="Bit depth for raw PCM data")
 
 class WhisperService:
     def __init__(self):
@@ -74,11 +77,18 @@ class WhisperService:
     async def transcribe(self, audio_path: str) -> str:
         await self.load_model()
         try:
+            # Check if file exists and is readable
+            if not os.path.exists(audio_path):
+                raise FileNotFoundError(f"Audio file not found: {audio_path}")
+
+            if os.path.getsize(audio_path) == 0:
+                raise ValueError(f"Audio file is empty: {audio_path}")
+
             result = self.model.transcribe(audio_path, language="en")
             return result["text"].strip()
         except Exception as e:
-            logger.error(f"Transcription failed: {e}")
-            raise e
+            logger.error(f"Transcription failed for {audio_path}: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to load audio: {str(e)}")
 
 class WakeWordDetector:
     def __init__(self):
@@ -211,18 +221,74 @@ async def save_temp_file(file: UploadFile) -> str:
             os.unlink(temp_path)
         raise e
 
-async def save_buffer_to_temp_file(audio_buffer: bytes, format: str = "mp3") -> str:
+async def save_buffer_to_temp_file(audio_buffer: bytes, format: str = "mp3", sample_rate: int = 16000, channels: int = 1, bit_depth: int = 16) -> str:
     # Create temporary file from buffer
     suffix = f".{format}"
     temp_fd, temp_path = tempfile.mkstemp(suffix=suffix, prefix="nova_buffer_")
 
     try:
-        # Write buffer content
-        with os.fdopen(temp_fd, 'wb') as temp_file:
-            temp_file.write(audio_buffer)
+        # For WAV format, ensure proper audio data processing
+        if format.lower() == "wav":
+            try:
+                # First try to read as existing WAV file
+                audio_data, sample_rate = sf.read(io.BytesIO(audio_buffer))
+
+                # Write properly formatted WAV file
+                with os.fdopen(temp_fd, 'wb') as temp_file:
+                    temp_file.close()  # Close the file descriptor first
+
+                # Use soundfile to write proper WAV format
+                sf.write(temp_path, audio_data, sample_rate)
+
+            except Exception as wav_error:
+                logger.warning(f"Failed to process as WAV file: {wav_error}")
+
+                # Likely raw PCM data - convert to proper WAV
+                try:
+                    # Close the original file descriptor
+                    with os.fdopen(temp_fd, 'wb') as temp_file:
+                        temp_file.close()
+
+                    # Raw PCM data - convert using provided parameters
+                    # Convert bytes to numpy array based on bit depth
+                    if bit_depth == 16:
+                        audio_array = np.frombuffer(audio_buffer, dtype=np.int16)
+                        audio_float = audio_array.astype(np.float32) / 32768.0
+                    elif bit_depth == 32:
+                        audio_array = np.frombuffer(audio_buffer, dtype=np.int32)
+                        audio_float = audio_array.astype(np.float32) / 2147483648.0
+                    elif bit_depth == 8:
+                        audio_array = np.frombuffer(audio_buffer, dtype=np.uint8)
+                        audio_float = (audio_array.astype(np.float32) - 128.0) / 128.0
+                    else:
+                        raise ValueError(f"Unsupported bit depth: {bit_depth}")
+
+                    # Reshape for multiple channels if needed
+                    if channels > 1:
+                        audio_float = audio_float.reshape(-1, channels)
+
+                    # Write as proper WAV file using provided sample rate
+                    sf.write(temp_path, audio_float, sample_rate)
+
+                    logger.info(f"Converted {len(audio_buffer)} bytes of raw PCM to WAV")
+
+                except Exception as pcm_error:
+                    logger.error(f"Failed to convert raw PCM data: {pcm_error}")
+                    # Final fallback: write raw data
+                    with open(temp_path, 'wb') as f:
+                        f.write(audio_buffer)
+        else:
+            # For other formats (MP3, etc.), write directly
+            with os.fdopen(temp_fd, 'wb') as temp_file:
+                temp_file.write(audio_buffer)
+
         return temp_path, audio_buffer
+
     except Exception as e:
-        os.close(temp_fd)
+        try:
+            os.close(temp_fd)
+        except:
+            pass
         if os.path.exists(temp_path):
             os.unlink(temp_path)
         raise e
@@ -275,11 +341,14 @@ async def transcribe_audio(request: Request, file: Optional[UploadFile] = File(N
                 audio_buffer_data = json_data["audio_buffer"]
                 audio_data = base64.b64decode(audio_buffer_data.get("audio_data", ""))
                 format_type = audio_buffer_data.get("format", "mp3")
+                sample_rate = audio_buffer_data.get("sample_rate", 16000)
+                channels = audio_buffer_data.get("channels", 1)
+                bit_depth = audio_buffer_data.get("bit_depth", 16)
 
                 if len(audio_data) > 25 * 1024 * 1024:  # 25MB limit
                     raise HTTPException(status_code=413, detail="Audio data too large. Maximum size is 25MB.")
 
-                temp_path, _ = await save_buffer_to_temp_file(audio_data, format_type)
+                temp_path, _ = await save_buffer_to_temp_file(audio_data, format_type, sample_rate, channels, bit_depth)
             except json_module.JSONDecodeError:
                 raise HTTPException(status_code=400, detail="Invalid JSON payload")
             except Exception as e:
@@ -334,11 +403,14 @@ async def recognise_wake_word(request: Request, file: Optional[UploadFile] = Fil
                 audio_buffer_data = json_data["audio_buffer"]
                 audio_content = base64.b64decode(audio_buffer_data.get("audio_data", ""))
                 format_type = audio_buffer_data.get("format", "mp3")
+                sample_rate = audio_buffer_data.get("sample_rate", 16000)
+                channels = audio_buffer_data.get("channels", 1)
+                bit_depth = audio_buffer_data.get("bit_depth", 16)
 
                 if len(audio_content) > 25 * 1024 * 1024:  # 25MB limit
                     raise HTTPException(status_code=413, detail="Audio data too large. Maximum size is 25MB.")
 
-                temp_path, _ = await save_buffer_to_temp_file(audio_content, format_type)
+                temp_path, _ = await save_buffer_to_temp_file(audio_content, format_type, sample_rate, channels, bit_depth)
             except json_module.JSONDecodeError:
                 raise HTTPException(status_code=400, detail="Invalid JSON payload")
             except Exception as e:
