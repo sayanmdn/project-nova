@@ -17,7 +17,8 @@ export class NovaApp extends EventEmitter {
   private deviceManager: AudioDeviceManager;
   private recorder: AudioRecorder;
   private wakeWordDetector: WakeWordDetector;
-  
+  private options: CLIOptions;
+
   private currentState: AppState = AppState.IDLE;
   private selectedDevice: AudioDevice | null = null;
   private isRunning: boolean = false;
@@ -25,7 +26,8 @@ export class NovaApp extends EventEmitter {
 
   constructor(options: CLIOptions = {}) {
     super();
-    
+
+    this.options = options;
     this.logger = new Logger(options.verbose);
     this.config = new ConfigManager(options.config, options);
     this.ui = new TerminalUI();
@@ -113,16 +115,25 @@ export class NovaApp extends EventEmitter {
 
   private async setupAudioDevice(): Promise<void> {
     const devices = await this.deviceManager.listDevices();
-    
+
     if (devices.length === 0) {
       throw new Error('No audio devices found');
     }
 
     this.ui.showDeviceSelection(devices);
-    
-    // Use default device or specified device
-    this.selectedDevice = this.deviceManager.getDefaultDevice() || devices[0];
-    
+
+    // Use specified device from CLI option, or fall back to default
+    if (this.options.device !== undefined) {
+      const device = this.deviceManager.getDevice(this.options.device);
+      if (!device) {
+        throw new Error(`Device with ID ${this.options.device} not found`);
+      }
+      this.selectedDevice = device;
+      this.logger.info(`Using specified device ID: ${this.options.device}`);
+    } else {
+      this.selectedDevice = this.deviceManager.getDefaultDevice() || devices[0];
+    }
+
     if (this.selectedDevice) {
       this.ui.showDeviceConnected(this.selectedDevice);
       this.logger.info(`Selected audio device: ${this.selectedDevice.name}`);

@@ -49,7 +49,7 @@ export class AudioRecorder extends EventEmitter {
         thresholdStart: null,
         thresholdEnd: null,
         silence: '1.0',
-        device: device?.name || null,
+        device: null, // Use default device
         recordProgram: 'arecord'
       };
 

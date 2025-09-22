@@ -37,6 +37,26 @@ if (process.env.NODE_ENV !== 'test') {
     console.log(`Nova Backend API stub server running on port ${port}`);
     console.log(`Health check: http://localhost:${port}/health`);
     console.log(`API endpoints: http://localhost:${port}/api/v1`);
+  }).on('error', (error: Error) => {
+    console.error('Server failed to start:', error.message);
+
+    if ('code' in error) {
+      switch ((error as any).code) {
+        case 'EADDRINUSE':
+          console.error(`Port ${port} is already in use. Please use a different port or stop the existing service.`);
+          break;
+        case 'EACCES':
+          console.error(`Permission denied. Cannot bind to port ${port}. Try using a port above 1024 or run with appropriate permissions.`);
+          break;
+        case 'ENOTFOUND':
+          console.error('Address not found. Please check your network configuration.');
+          break;
+        default:
+          console.error(`Server error code: ${(error as any).code}`);
+      }
+    }
+
+    process.exit(1);
   });
 }
 

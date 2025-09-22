@@ -1,0 +1,351 @@
+# NOVA CLIENT APPLICATION DOCUMENTATION
+
+## OVERVIEW
+Nova Client is a Node.js-based CLI application that provides voice-activated AI interaction through wake word detection, audio transcription, and text processing. The client communicates with a backend API server for audio processing and AI responses.
+
+## API ENDPOINTS & PAYLOADS
+
+### Base Configuration
+- **Base URL**: http://localhost:4000
+- **Client Timeout**: 30000ms (30 seconds)
+- **User Agent**: Nova-CLI/1.0.0
+
+### 1. Health Check Endpoint
+**Endpoint**: GET /
+**Purpose**: Verify server status and GPU availability
+**Rate Limit**: 100 requests per minute
+**Payload**: None (GET request)
+**Response**:
+```json
+{
+  "status": "ok",
+  "timestamp": "2025-09-22T10:39:22.278Z",
+  "cuda_available": true,
+  "gpu_info": {
+    "gpu_count": 1,
+    "current_device": 0,
+    "device_name": "NVIDIA GeForce RTX 3060"
+  },
+  "version": "1.0.0"
+}
+```
+
+### 2. Wake Word Detection Endpoint
+**Endpoint**: POST /api/v1/recognise
+**Purpose**: Detect wake word ("hi nova") in audio and return confidence score
+**Rate Limit**: 60 requests per minute
+**Content-Type**: multipart/form-data
+**Payload Structure**:
+```
+FormData:
+- file: Audio buffer (Buffer object)
+- filename: 'audio.wav'
+- contentType: 'audio/wav'
+```
+**Response Interface (WakeWordResponse)**:
+```typescript
+{
+  success: boolean;
+  detected: boolean;
+  confidence: number;        // 0.0 to 1.0
+  timestamp: string;         // ISO 8601 format
+}
+```
+
+### 3. Audio Transcription Endpoint
+**Endpoint**: POST /api/v1/listen
+**Purpose**: Transcribe audio to text using Whisper model
+**Rate Limit**: 30 requests per minute
+**Content-Type**: multipart/form-data
+**Payload Structure**:
+```
+FormData:
+- file: Audio buffer (Buffer object)
+- filename: 'audio.wav'
+- contentType: 'audio/wav'
+```
+**Response Interface (TranscriptionResponse)**:
+```typescript
+{
+  success: boolean;
+  transcript: string;        // Transcribed text
+  timestamp: string;         // ISO 8601 format
+}
+```
+
+### 4. Text Processing Endpoint
+**Endpoint**: POST /api/v1/process
+**Purpose**: Process text input with LLM service
+**Rate Limit**: 20 requests per minute
+**Content-Type**: application/json
+**Payload Structure**:
+```json
+{
+  "text": "user input text",
+  "context": "optional context for processing"
+}
+```
+**Response Interface (ProcessResponse)**:
+```typescript
+{
+  success: boolean;
+  response: string;          // AI-generated response
+  timestamp: string;         // ISO 8601 format
+}
+```
+
+## AUDIO FILE FORMATS & SPECIFICATIONS
+
+### Supported Audio Formats
+- **Primary Format**: WAV (audio/wav)
+- **Secondary Formats**: MP3 (audio/mpeg, audio/mp3)
+- **Max File Size**: 25MB
+
+### Audio Configuration Parameters
+```typescript
+interface AudioConfig {
+  sampleRate: number;        // Default: 16000 Hz
+  chunkDuration: number;     // Default: 3.0 seconds
+  silenceThreshold: number;  // Default: -40 dB
+  silenceDuration: number;   // Default: 2.0 seconds
+}
+```
+
+### Audio Processing Specifications
+- **Channels**: 1 (Mono)
+- **Bit Depth**: 16-bit
+- **Sample Rate**: 16000 Hz (configurable: 8000, 16000, 44100, 48000)
+- **Recording Format**: PCM (Linear Pulse Code Modulation)
+- **Buffer Management**: 30-second rolling buffer with automatic trimming
+
+### Audio Recording Pipeline
+1. **Input Source**: System microphone via node-record-lpcm16
+2. **Buffer Processing**: Real-time audio chunk processing
+3. **Silence Detection**: WebRTC VAD (Voice Activity Detection)
+4. **Audio Level Calculation**: RMS-based amplitude measurement
+5. **Format Conversion**: Raw PCM to WAV format for transmission
+
+## DATA STRUCTURES & INTERFACES
+
+### Core Configuration Interface
+```typescript
+interface NovaConfig {
+  server: {
+    baseUrl: string;         // API server URL
+    timeout: number;         // Request timeout in milliseconds
+  };
+  audio: {
+    sampleRate: number;      // Audio sample rate
+    chunkDuration: number;   // Recording chunk duration
+    silenceThreshold: number; // dB threshold for silence detection
+    silenceDuration: number; // Duration to consider as silence
+  };
+  wakeWord: {
+    confidenceThreshold: number; // Wake word detection threshold (0.0-1.0)
+    cooldownPeriod: number;     // Cooldown between detections
+  };
+}
+```
+
+### Audio Data Structures
+```typescript
+interface AudioDevice {
+  id: number;              // System device identifier
+  name: string;            // Human-readable device name
+  channels: number;        // Number of audio channels
+  isDefault: boolean;      // Whether this is the default device
+}
+
+interface AudioChunk {
+  buffer: Buffer;          // Raw audio data
+  timestamp: number;       // Unix timestamp in milliseconds
+  duration: number;        // Chunk duration in milliseconds
+}
+
+interface AudioMetrics {
+  level: number;           // Current audio level (0.0-1.0)
+  isRecording: boolean;    // Recording state
+  state: AppState;         // Application state
+}
+```
+
+### Application State Management
+```typescript
+enum AppState {
+  IDLE = 'IDLE',
+  LISTENING = 'LISTENING',         // Waiting for wake word
+  TRIGGERED = 'TRIGGERED',         // Wake word detected
+  RECORDING = 'RECORDING',         // Recording user speech
+  PROCESSING = 'PROCESSING',       // Processing audio/text
+  RESPONDING = 'RESPONDING',       // Displaying AI response
+  ERROR = 'ERROR'                  // Error state
+}
+```
+
+### CLI Options Interface
+```typescript
+interface CLIOptions {
+  device?: number;                 // Audio device ID
+  config?: string;                 // Config file path
+  verbose?: boolean;               // Verbose logging
+  server?: string;                 // Override server URL
+  chunkDuration?: number;          // Override chunk duration
+  confidenceThreshold?: number;    // Override confidence threshold
+  silenceThreshold?: number;       // Override silence threshold
+}
+```
+
+## CONFIGURATION FILE FORMAT
+
+### Default Configuration (YAML)
+```yaml
+server:
+  baseUrl: "http://localhost:4000"
+  timeout: 30000
+
+audio:
+  sampleRate: 16000
+  chunkDuration: 3.0
+  silenceThreshold: -40
+  silenceDuration: 2.0
+
+wakeWord:
+  confidenceThreshold: 0.8
+  cooldownPeriod: 1.0
+```
+
+### Configuration Loading Priority
+1. Default configuration (hardcoded)
+2. Config file (YAML format)
+3. CLI options (override config file)
+
+## ERROR HANDLING & HTTP STATUS CODES
+
+### Client-Side Error Categories
+- **Connection Errors**: Network connectivity issues
+- **Authentication Errors**: API access problems
+- **Audio Errors**: Recording/playback failures
+- **Processing Errors**: Server-side processing failures
+
+### HTTP Status Codes
+- **200**: Success
+- **400**: Bad Request (invalid input, missing fields)
+- **413**: Payload Too Large (>25MB audio)
+- **429**: Rate limit exceeded
+- **500**: Internal server error
+
+### Error Response Format
+```json
+{
+  "detail": "Error description message"
+}
+```
+
+## DEPENDENCIES & LIBRARIES
+
+### Core Dependencies
+- **axios**: HTTP client for API communication (v1.12.2)
+- **form-data**: Multipart form data handling (v4.0.4)
+- **node-record-lpcm16**: Audio recording library (v1.0.1)
+- **speaker**: Audio playback library (v0.5.5)
+- **winston**: Logging framework (v3.17.0)
+- **yaml**: YAML configuration parsing (v2.8.1)
+- **chalk**: Terminal color formatting (v4.1.2)
+- **commander**: CLI framework (v14.0.1)
+- **cli-progress**: Progress bar display (v3.12.0)
+
+### Development Dependencies
+- **typescript**: TypeScript compiler (v5.9.2)
+- **ts-node**: TypeScript execution (v10.9.2)
+- **jest**: Testing framework (v30.1.3)
+- **ts-jest**: Jest TypeScript integration (v29.4.4)
+
+## LOGGING & MONITORING
+
+### Log Levels
+- **DEBUG**: Detailed diagnostic information
+- **INFO**: General application information
+- **WARN**: Warning messages
+- **ERROR**: Error conditions
+
+### Monitored Metrics
+- API response times
+- Audio level measurements
+- Wake word detection confidence
+- Recording session durations
+- Error frequencies
+
+## SECURITY CONSIDERATIONS
+
+### Data Handling
+- Audio data transmitted as multipart form data
+- No persistent storage of audio recordings
+- 30-second rolling buffer for temporary audio storage
+- HTTPS support for secure communication
+
+### Rate Limiting (Server-Side)
+- Health check: 100 requests/minute
+- Audio transcription: 30 requests/minute
+- Wake word detection: 60 requests/minute
+- Text processing: 20 requests/minute
+
+### CORS Policy
+- All origins allowed (development configuration)
+- All methods and headers allowed
+- Credentials supported
+
+## BUILD & DEPLOYMENT
+
+### Build Scripts
+- **build**: TypeScript compilation (tsc)
+- **start**: Production execution (node dist/cli.js)
+- **dev**: Development execution (ts-node src/cli.ts)
+- **test**: Jest test execution
+- **lint**: TypeScript type checking
+- **clean**: Remove build artifacts
+
+### Binary Distribution
+- **Package Name**: client-application
+- **Binary Name**: nova-cli
+- **Entry Point**: dist/cli.js
+- **Version**: 1.0.0
+
+### File Structure
+```
+src/
+├── api/
+│   └── client.ts          # API client implementation
+├── app.ts                 # Main application class
+├── audio/
+│   ├── recorder.ts        # Audio recording functionality
+│   ├── devices.ts         # Audio device management
+│   └── wakeword.ts        # Wake word detection
+├── config/
+│   └── index.ts           # Configuration management
+├── types/
+│   └── index.ts           # TypeScript interfaces
+├── ui/
+│   └── terminal.ts        # Terminal user interface
+├── utils/
+│   └── logger.ts          # Logging utilities
+└── cli.ts                 # CLI entry point
+```
+
+## USAGE PATTERNS
+
+### Typical Session Flow
+1. **Initialization**: Load configuration, check server health
+2. **Device Setup**: Enumerate and select audio device
+3. **Listening**: Continuous wake word detection
+4. **Activation**: Wake word detected, start recording
+5. **Processing**: Transcribe audio, process with AI
+6. **Response**: Display AI response, return to listening
+
+### Audio Pipeline
+1. **Continuous Recording**: Background audio capture
+2. **Chunk Processing**: Real-time audio analysis
+3. **Wake Word Detection**: Pattern matching on audio chunks
+4. **Session Recording**: Full audio capture after wake word
+5. **Silence Detection**: End-of-speech detection
+6. **Transcription**: Audio-to-text conversion
+7. **AI Processing**: Text-to-response generation

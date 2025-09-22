@@ -1,0 +1,192 @@
+# NOVA Backend API Endpoints Documentation
+
+## Base URL
+http://localhost:4000
+
+## Health Check
+
+### GET /
+**Description:** Health check endpoint to verify server status and GPU availability
+**Rate Limit:** 100 requests per minute
+**Response:**
+```json
+{
+  "status": "ok",
+  "timestamp": "2025-09-22T10:39:22.278Z",
+  "cuda_available": true,
+  "gpu_info": {
+    "gpu_count": 1,
+    "current_device": 0,
+    "device_name": "NVIDIA GeForce RTX 3060"
+  },
+  "version": "1.0.0"
+}
+```
+
+## Audio Transcription
+
+### POST /api/v1/listen
+**Description:** Transcribe audio to text using Whisper model
+**Rate Limit:** 30 requests per minute
+
+**Input Methods:**
+
+#### Method 1: File Upload (Multipart Form Data)
+```
+Content-Type: multipart/form-data
+```
+- **file** (required): Audio file (MP3, WAV) - max 25MB
+
+#### Method 2: JSON Audio Buffer
+```
+Content-Type: application/json
+```
+```json
+{
+  "audio_buffer": {
+    "audio_data": "base64_encoded_audio_data",
+    "format": "mp3",
+    "sample_rate": 16000,
+    "channels": 1,
+    "bit_depth": 16
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "transcript": "transcribed text from audio",
+  "timestamp": "2025-09-22T10:39:22.278Z"
+}
+```
+
+**Error Responses:**
+- 400: Invalid audio format, missing data, or malformed request
+- 413: File too large (>25MB)
+- 500: Transcription failed
+
+## Wake Word Detection
+
+### POST /api/v1/recognise
+**Description:** Detect wake word ("hi nova") in audio and return confidence score
+**Rate Limit:** 60 requests per minute
+
+**Input Methods:**
+
+#### Method 1: File Upload (Multipart Form Data)
+```
+Content-Type: multipart/form-data
+```
+- **file** (required): Audio file (MP3, WAV) - max 25MB
+
+#### Method 2: JSON Audio Buffer
+```
+Content-Type: application/json
+```
+```json
+{
+  "audio_buffer": {
+    "audio_data": "base64_encoded_audio_data",
+    "format": "mp3",
+    "sample_rate": 16000,
+    "channels": 1,
+    "bit_depth": 16
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "detected": true,
+  "confidence": 0.95,
+  "timestamp": "2025-09-22T10:39:22.278Z"
+}
+```
+
+**Detection Logic:**
+- Direct match: "hi nova" in transcript (confidence: 0.95)
+- Fuzzy match: Similarity score ≥ 0.7 (configurable threshold)
+- Speech activity detection using WebRTC VAD
+- Returns false if no speech activity detected
+
+**Error Responses:**
+- 400: Invalid audio format, missing data, or malformed request
+- 413: File too large (>25MB)
+- 500: Wake word detection failed
+
+## Text Processing
+
+### POST /api/v1/process
+**Description:** Process text input with LLM service
+**Rate Limit:** 20 requests per minute
+
+**Request:**
+```json
+{
+  "text": "user input text",
+  "context": "optional context for processing"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "response": "LLM generated response",
+  "timestamp": "2025-09-22T10:39:22.278Z"
+}
+```
+
+**Built-in Responses:**
+- Weather queries: Suggests checking weather apps
+- Time: Returns current time
+- Date: Returns current date
+- Hello: Greeting response
+- Help: Available commands
+
+**Error Responses:**
+- 400: Empty text input
+- 500: Text processing failed
+
+## Audio Format Support
+
+**Supported Formats:**
+- MP3 (audio/mpeg, audio/mp3)
+- WAV (audio/wav, audio/x-wav, audio/wave)
+
+**Raw PCM Parameters (for JSON buffer):**
+- **sample_rate**: 8000, 16000, 44100, 48000 Hz
+- **channels**: 1 (mono), 2 (stereo)
+- **bit_depth**: 8, 16, 32 bits
+
+## Error Handling
+
+**Common Error Codes:**
+- 400: Bad Request (invalid input, missing fields)
+- 413: Payload Too Large (>25MB audio)
+- 429: Rate limit exceeded
+- 500: Internal server error
+
+**Error Response Format:**
+```json
+{
+  "detail": "Error description message"
+}
+```
+
+## CORS Policy
+- All origins allowed (*)
+- All methods allowed
+- All headers allowed
+- Credentials allowed
+
+## Rate Limiting
+Based on client IP address:
+- Health check: 100/minute
+- Audio transcription: 30/minute
+- Wake word detection: 60/minute
+- Text processing: 20/minute

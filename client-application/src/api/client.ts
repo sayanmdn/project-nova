@@ -64,9 +64,9 @@ export class NovaApiClient {
   public async detectWakeWord(audioBuffer: Buffer): Promise<WakeWordResponse> {
     try {
       const formData = new FormData();
-      formData.append('audio', audioBuffer, {
-        filename: 'audio.mp3',
-        contentType: 'audio/mpeg'
+      formData.append('file', audioBuffer, {
+        filename: 'audio.wav',
+        contentType: 'audio/wav'
       });
 
       const response: AxiosResponse<WakeWordResponse> = await this.client.post(
@@ -90,9 +90,9 @@ export class NovaApiClient {
   public async transcribeAudio(audioBuffer: Buffer): Promise<TranscriptionResponse> {
     try {
       const formData = new FormData();
-      formData.append('audio', audioBuffer, {
-        filename: 'audio.mp3',
-        contentType: 'audio/mpeg'
+      formData.append('file', audioBuffer, {
+        filename: 'audio.wav',
+        contentType: 'audio/wav'
       });
 
       const response: AxiosResponse<TranscriptionResponse> = await this.client.post(
