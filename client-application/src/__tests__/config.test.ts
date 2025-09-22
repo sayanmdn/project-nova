@@ -14,6 +14,7 @@ describe('ConfigManager', () => {
     },
     audio: {
       sampleRate: 8000,
+      channels: 1,
       chunkDuration: 2.0,
       silenceThreshold: -50,
       silenceDuration: 1.5

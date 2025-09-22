@@ -19,6 +19,7 @@ describe('NovaApiClient', () => {
       },
       audio: {
         sampleRate: 16000,
+        channels: 1,
         chunkDuration: 3.0,
         silenceThreshold: -40,
         silenceDuration: 2.0

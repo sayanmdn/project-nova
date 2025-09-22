@@ -64,3 +64,41 @@ export function formatDuration(ms: number): string {
   }
   return `${remainingSeconds}s`;
 }
+
+export function createWavHeader(dataLength: number, sampleRate: number, channels: number): Buffer {
+  const header = Buffer.alloc(44);
+  
+  // RIFF identifier
+  header.write('RIFF', 0);
+  // File size
+  header.writeUInt32LE(36 + dataLength, 4);
+  // WAVE identifier
+  header.write('WAVE', 8);
+  // FMT chunk identifier
+  header.write('fmt ', 12);
+  // FMT chunk length
+  header.writeUInt32LE(16, 16);
+  // Audio format (PCM)
+  header.writeUInt16LE(1, 20);
+  // Number of channels
+  header.writeUInt16LE(channels, 22);
+  // Sample rate
+  header.writeUInt32LE(sampleRate, 24);
+  // Byte rate (SampleRate * NumChannels * BitsPerSample/8)
+  header.writeUInt32LE(sampleRate * channels * 2, 28);
+  // Block align (NumChannels * BitsPerSample/8)
+  header.writeUInt16LE(channels * 2, 32);
+  // Bits per sample
+  header.writeUInt16LE(16, 34);
+  // Data chunk identifier
+  header.write('data', 36);
+  // Data chunk size
+  header.writeUInt32LE(dataLength, 40);
+  
+  return header;
+}
+
+export function pcmToWav(pcmBuffer: Buffer, sampleRate: number, channels: number): Buffer {
+  const header = createWavHeader(pcmBuffer.length, sampleRate, channels);
+  return Buffer.concat([header, pcmBuffer]);
+}

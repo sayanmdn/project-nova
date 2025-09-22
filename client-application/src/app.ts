@@ -160,6 +160,7 @@ export class NovaApp extends EventEmitter {
   }
 
   private async handleWakeWordDetected(confidence: number, timestamp: string): Promise<void> {
+    this.logger.info('Wake word detected, transitioning to TRIGGERED state.');
     this.logger.info(`Wake word detected with confidence: ${confidence}`);
     
     this.setState(AppState.TRIGGERED);
@@ -173,56 +174,53 @@ export class NovaApp extends EventEmitter {
   }
 
   private async startRecordingSession(): Promise<void> {
+    this.logger.info('Starting recording session.');
     this.setState(AppState.RECORDING);
     this.ui.showRecording();
-    
-    // Continue recording until silence is detected
-    let silenceCount = 0;
-    const maxSilenceMs = this.config.getConfig().audio.silenceDuration * 1000;
-    
-    const checkSilence = setInterval(() => {
-      const audioLevel = this.recorder.getCurrentAudioLevel();
-      this.ui.updateRecordingProgress(audioLevel);
-      
-      if (audioLevel < Math.abs(this.config.getConfig().audio.silenceThreshold)) {
-        silenceCount += 100;
-        if (silenceCount >= maxSilenceMs) {
-          clearInterval(checkSilence);
-          this.endRecordingSession();
-        }
-      } else {
-        silenceCount = 0;
+
+    const recordingTimeout = setTimeout(() => {
+      if (this.currentState === AppState.RECORDING) {
+        this.logger.info('Recording session timed out.');
+        this.endRecordingSession();
       }
-    }, 100);
-    
-    // Timeout fallback
-    setTimeout(() => {
-      clearInterval(checkSilence);
-      this.endRecordingSession();
     }, 30000); // 30 second max recording
+
+    this.recorder.once('stop', () => {
+      clearTimeout(recordingTimeout);
+    });
   }
 
   private async endRecordingSession(): Promise<void> {
+    this.logger.info('Attempting to end recording session.');
+    if (this.currentState !== AppState.RECORDING) {
+      this.logger.info(`Recording session not in RECORDING state. Current state: ${this.currentState}. Aborting endRecordingSession.`);
+      return;
+    }
     this.setState(AppState.PROCESSING);
     this.ui.showProcessing();
     
     const audioBuffer = this.recorder.stopRecording();
+    this.logger.info('Recorder stopped. Processing audio buffer.');
     
     if (!audioBuffer) {
       this.handleError('No audio data recorded', new Error('Empty audio buffer'));
+      this.logger.warn('Empty audio buffer after stopping recorder.');
       return;
     }
 
     try {
+      this.logger.info('Transcribing audio...');
       // Transcribe audio
       const transcription = await this.apiClient.transcribeAudio(audioBuffer);
       
       if (!transcription.success) {
         throw new Error('Transcription failed');
       }
+      this.logger.info(`Transcription successful: ${transcription.transcript}`);
 
       this.ui.showTranscript(transcription.transcript);
       
+      this.logger.info('Processing text with AI...');
       // Process with AI
       const response = await this.apiClient.processText(
         transcription.transcript, 
@@ -232,6 +230,7 @@ export class NovaApp extends EventEmitter {
       if (!response.success) {
         throw new Error('AI processing failed');
       }
+      this.logger.info(`AI processing successful. Response: ${response.response}`);
 
       this.setState(AppState.RESPONDING);
       this.ui.showResponse(response.response);
@@ -246,11 +245,14 @@ export class NovaApp extends EventEmitter {
 
     } catch (error) {
       this.handleError('Failed to process recording', error as Error);
+      this.logger.error('Error during audio processing or AI interaction.', error);
     }
   }
 
   private handleSilence(duration: number): void {
-    if (this.currentState === AppState.RECORDING && duration > 2000) {
+    this.logger.info(`Silence detected for ${duration}ms. Current state: ${this.currentState}`);
+    if (this.currentState === AppState.RECORDING) {
+      this.logger.info('Ending recording session due to silence.');
       this.endRecordingSession();
     }
   }

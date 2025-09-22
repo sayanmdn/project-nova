@@ -5,6 +5,7 @@ export interface NovaConfig {
   };
   audio: {
     sampleRate: number;
+    channels: number;
     chunkDuration: number;
     silenceThreshold: number;
     silenceDuration: number;

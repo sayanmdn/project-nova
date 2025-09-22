@@ -2,7 +2,7 @@ import { EventEmitter } from 'events';
 import { NovaApiClient } from '../api/client';
 import { AudioChunk, NovaConfig, WakeWordResponse } from '../types';
 import { Logger } from '../utils/logger';
-import { sleep } from '../utils';
+import { sleep, pcmToWav } from '../utils';
 
 export interface WakeWordEvents {
   'detected': (confidence: number, timestamp: string) => void;
@@ -98,6 +98,7 @@ export class WakeWordDetector extends EventEmitter {
 
     try {
       const response = await this.detectWakeWordInChunk(chunk);
+      this.logger.debug(`Wake word API response: ${JSON.stringify(response)}`);
       
       if (response.success && response.detected && 
           response.confidence >= this.config.wakeWord.confidenceThreshold) {
@@ -118,18 +119,19 @@ export class WakeWordDetector extends EventEmitter {
   private async detectWakeWordInChunk(chunk: AudioChunk): Promise<WakeWordResponse> {
     try {
       // Convert audio chunk to format expected by API
-      const audioBuffer = this.convertToMp3Buffer(chunk.buffer);
+      const audioBuffer = this.convertToWavBuffer(chunk.buffer);
       return await this.apiClient.detectWakeWord(audioBuffer);
     } catch (error) {
       throw new Error(`Failed to detect wake word: ${error}`);
     }
   }
 
-  private convertToMp3Buffer(buffer: Buffer): Buffer {
-    // For now, return the buffer as-is
-    // In a real implementation, you would convert PCM to MP3
-    // This would require additional audio processing libraries
-    return buffer;
+  private convertToWavBuffer(buffer: Buffer): Buffer {
+    return pcmToWav(
+      buffer,
+      this.config.audio.sampleRate,
+      this.config.audio.channels
+    );
   }
 
   public isCurrentlyListening(): boolean {
