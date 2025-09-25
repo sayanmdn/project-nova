@@ -12,5 +12,5 @@ audio:
   silenceDuration: 2.0
 
 wakeWord:
-  confidenceThreshold: 0.8
+  confidenceThreshold: 0.2
   cooldownPeriod: 1.0

@@ -1,12 +1,13 @@
+
 import logger from '../utils/logger';
 
 export class LLMService {
   private isInitialized = false;
+  
 
   async initialize(): Promise<void> {
     try {
-      // Initialize LLM service (placeholder for actual LLM integration)
-      // This could be OpenAI API, local model, or other LLM service
+    
       this.isInitialized = true;
       logger.info('LLM service initialized successfully');
     } catch (error) {
